@@ -1,0 +1,43 @@
+name: Deploy Backend to Azure Web App (Docker)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      REGISTRY_NAME: alsaadacr
+      IMAGE_NAME: backend-api
+      RESOURCE_GROUP: RGSportsDashboards
+      WEBAPP_NAME: alsaad-backend-api
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Azure CLI login removed - using publish profile deployment
+
+      - name: Build and push Docker image to ACR
+        run: |
+          IMAGE_TAG=$(echo $GITHUB_SHA | head -c7)
+          docker build -t $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG -f backend/Dockerfile.debug ./backend
+          echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ env.REGISTRY_NAME }}.azurecr.io --username ${{ secrets.ACR_USERNAME }} --password-stdin
+          docker push $REGISTRY_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Deploy image to Azure Web App
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ env.WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_BACKEND_PUBLISH_PROFILE }}
+          images: ${{ env.REGISTRY_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          registry-url: ${{ env.REGISTRY_NAME }}.azurecr.io
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Logout from Azure
+        run: az logout || true
